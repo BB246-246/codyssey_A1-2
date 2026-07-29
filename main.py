@@ -61,9 +61,9 @@ except json.JSONDecodeError:
 print(f"[1/3] 1차 추천 생성 완료 - recommended_city: {recommendation.get('recommended_city')}")
 
 def search_restaurants(city): #카카오 api에 요청 보내기
-    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
-    params = {"query": f"{city} 맛집", "size": 5}
+    url = "https://dapi.kakao.com/v2/local/search/keyword.json" # to where
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"} #헤더
+    params = {"query": f"{city} 맛집", "size": 5} #파라미터(본문)
 
     try:
         response = requests.get(url, headers=headers, params=params)
