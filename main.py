@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import requests
 import json
+import re
 import sys
 from datetime import datetime
 load_dotenv()
@@ -11,7 +12,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY")
 
-if not GEMINI_API_KEY or not KAKAO_REST_API_KEY: # 키 미설정 시 설정 방법 안내
+if not GEMINI_API_KEY or not KAKAO_REST_API_KEY: # 키 미설정 시 설정 권유
     print("[오류] API 키가 설정되지 않았습니다.")
     print("프로젝트 루트에 .env 파일을 만들고 아래 두 줄을 작성하세요:")
     print("  GEMINI_API_KEY=발급받은_키")
@@ -19,7 +20,7 @@ if not GEMINI_API_KEY or not KAKAO_REST_API_KEY: # 키 미설정 시 설정 방�
     sys.exit(1)
 
 genai.configure(api_key=GEMINI_API_KEY)
-errors = [] #오류 목록 관리
+errors = [] #오류나도 계속 진행(과제요건)
 
 parser = argparse.ArgumentParser(description="국내 여행지 추천 프로그램")
 parser.add_argument("--date", required=True, help="여행 날짜 (YYYY-MM-DD)")
@@ -36,7 +37,7 @@ def get_travel_recommendations(date_str):
     prompt = f"""{date_str}에 여행하기 좋은 국내 도시를 1곳 추천해줘. 그리고 아래 JSON 형식으로 답변하고 다른 설명은 출력하지 마
 
     {{
-        "recommended_city": "도시 이름",
+        "recommended_city": "도시 이름 1개만 (예: 광양 / 강릉 / 경주). 시·도 이름을 앞에 붙이거나 괄호 설명을 달지 말고, 여러 도시를 나열하지 마",
         "weather": "날씨 정보",
         "events": ["행사/이벤트1", "행사/이벤트2"],
         "reason": "추천 이유(2~4문장)"
@@ -57,6 +58,42 @@ except json.JSONDecodeError:
     except json.JSONDecodeError:
         errors.append({"step": "llm_recommend", "type": "PARSE_ERROR", "message": "재시도도 실패"})
         recommendation = {}
+
+def normalize_city(name): # 프롬프트를 벗어난 도시명을 검색용으로 정리
+    name = re.sub(r"\(.*?\)", " ", name) # 괄호와 그 안의 설명 제거
+    name = re.split(r"[,/·]", name)[0] # 여러 도시를 나열하면 첫 번째만
+    return " ".join(name.split()) # 앞뒤 및 중복 공백 정리
+
+def validate_recommendation(rec): # 4개 필드의 존재/내용/타입 검증
+    defaults = {"recommended_city": "", "weather": "", "events": [], "reason": ""}
+    for key, default in defaults.items():
+        value = rec.get(key)
+        if not value: # 키가 없거나(None) 값이 비어 있음("", [])
+            errors.append({
+                "step": "llm_recommend",
+                "type": "MISSING_FIELD",
+                "message": f"'{key}' 값이 없거나 비어 있음",
+            })
+            rec[key] = default
+        elif not isinstance(value, type(default)): # 타입이 약속과 다름
+            errors.append({
+                "step": "llm_recommend",
+                "type": "TYPE_ERROR",
+                "message": f"'{key}' 타입 불일치: {type(default).__name__} 기대, {type(value).__name__} 수신",
+            })
+            rec[key] = default
+
+    cleaned = normalize_city(rec["recommended_city"]) # 타입 검증 이후라 항상 문자열
+    if cleaned != rec["recommended_city"]:
+        errors.append({
+            "step": "llm_recommend",
+            "type": "FORMAT_WARNING",
+            "message": f"도시명 정규화: '{rec['recommended_city']}' -> '{cleaned}'",
+        })
+        rec["recommended_city"] = cleaned
+
+validate_recommendation(recommendation)
+
 
 print(f"[1/3] 1차 추천 생성 완료 - recommended_city: {recommendation.get('recommended_city')}")
 
